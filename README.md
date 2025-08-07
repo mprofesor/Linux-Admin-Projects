@@ -11,6 +11,6 @@ This repository was created strictly to document my Administration projects.
 - Self-Hosted IT Infrastructure for a Small Business
 - Docker-based Lab for DevOps & Admin Training
 
-### Done:
+### In progress:
 
 - Ubuntu Server Hardening
