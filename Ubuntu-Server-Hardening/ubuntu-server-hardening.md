@@ -408,4 +408,116 @@ Output can include:
 
     SSH logins, sudo activity, etc.
 
-### TO BE CONTINUED
+## Step 7: File integrity monitoring with AIDE
+
+### AIDE is a Advanced Intrusion Detection Environment
+It works by comparing file hashes and by so changes to the files changes the hash so the changes are monitored and can be easly spotted by administrator.
+
+For this I've prepared Ansible playbook that installs and configures the AIDE on our Server:
+
+On management (my host) system I create: `aide.yml`:
+
+```yaml
+---
+- name: Install and configure AIDE
+  hosts: safebox
+  become: true
+
+  vars:
+    aide_conf_path: /etc/aide/aide.conf
+    aide_db_path: /var/lib/aide/aide.db.gz
+
+  tasks:
+    - name: Install AIDE package
+      apt:
+        name: aide
+        state: present
+        update_cache: true
+
+    - name: Backup default AIDE config
+      copy:
+        src: "{{ aide_conf_path }}"
+        dest: "{{ aide_conf_path }}.bak"
+        remote_src: yes
+        force: no
+
+    - name: Replace AIDE config with custom rules
+      copy:
+        dest: "{{ aide_conf_path }}"
+        content: |
+          @@define DBDIR /var/lib/aide
+
+
+          database_in=file:@@{DBDIR}/aide.db.gz
+          database_out=file:@@{DBDIR}/aide.db.new.gz
+          gzip_dbout=yes
+
+          # Define AIDE rules
+          NORMAL = p+i+n+u+g+s+m+c+md5+sha512
+
+          # Files we want to monitor
+          /bin      NORMAL
+          /sbin     NORMAL
+          /lib      NORMAL
+          /lib64    NORMAL
+          /usr      NORMAL
+          /etc      NORMAL
+          /srv/data NORMAL
+
+          # Ignore runtime/volatile
+          !/proc
+          !/sys
+          !/dev
+          !/run
+          !/tmp
+          !/var/tmp
+          !/var/run
+
+    - name: Initialize AIDE database
+      command: aide --config=/etc/aide/aide.conf --init
+      args:
+        creates: /var/lib/aide/aide.db.new.gz
+
+    - name: Replace original DB with new baseline
+      copy:
+        src: /var/lib/aide/aide.db.new.gz
+        dest: "{{ aide_db_path }}"
+        remote_src: yes
+        force: yes
+
+    - name: Create cron job to run AIDE daily
+      copy:
+        dest: /etc/cron.daily/aide
+        mode: '0755'
+        content: |
+          #!/bin/sh
+          /usr/bin/aide.wrapper --check | mail -s "AIDE integrity check on $(hostname)" root
+
+    - name: Ensure mail is installed for cron output
+      apt:
+        name: mailutils
+        state: present
+
+```
+
+and `inventory.ini`
+
+```ini
+[safebox]
+192.168.88.190 ansible_user=admin-michal ansible_port=2222 ansible_ssh_private_key_file=~/.ssh/ubuntu-vm-srv
+```
+
+Then I run it:
+
+```bash
+ansible-playbook -i inventory.ini aide.yml --ask-become-pass
+```
+
+And that is how I can monitor this server using AIDE:
+
+```bash
+sudo touch /etc/aide-test
+sudo aide --config=/etc/aide/aid.conf --check | less # I'm using less to see what are the changes at the top but You can use head -n 10 for 10 lines at the top
+```
+
+![AIDEImage.png](Images/AIDEImage.png)
